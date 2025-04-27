@@ -6,7 +6,7 @@ class PromptBuilder:
             "background": "我是一个智能AI助手，旨在为用户提供有用的信息和帮助。"
         }
         
-        # 孩子们prompt你们自己改，这个是我自己的prompt
+        # 孩子们prompt不用改了，帮你们写好了
         self.system_prompt = """
         你的网名叫{name}，{background}。
         现在请你读读之前的聊天记录，然后给出日常且口语化的回复，平淡一些，

@@ -68,16 +68,33 @@ class SystemMonitor:
     def simulate_mouse_move(self, x: int, y: int):
         """模拟哈基人移动鼠标"""
         try:
+            pyautogui.FAILSAFE = False
+            pyautogui.PAUSE = 0.1
+            
+
+            screen_width, screen_height = pyautogui.size()
+            x = max(0, min(int(x), screen_width - 1))
+            y = max(0, min(int(y), screen_height - 1))
+            
             current_x, current_y = pyautogui.position()
-            distance = ((x - current_x) ** 2 + (y - current_y) ** 2) ** 0.5
-            duration = min(2.0, max(0.3, distance / 1000.0))
             
-            x += random.randint(-2, 2)
-            y += random.randint(-2, 2)
+            num_steps = 10
+            xs = [int(current_x + (x - current_x) * i / num_steps) for i in range(num_steps + 1)]
+            ys = [int(current_y + (y - current_y) * i / num_steps) for i in range(num_steps + 1)]
             
-            pyautogui.moveTo(x, y, duration=duration)
+            for i in range(1, len(xs) - 1):
+                xs[i] += random.randint(-10, 10)
+                ys[i] += random.randint(-10, 10)
+                xs[i] = max(0, min(xs[i], screen_width - 1))
+                ys[i] = max(0, min(ys[i], screen_height - 1))
+            
+            for i in range(len(xs)):
+                pyautogui.moveTo(xs[i], ys[i], duration=0.1)
+                time.sleep(0.02)  # 让bot看起来更像人
+            
             return f"已移动到 ({x}, {y})"
         except Exception as e:
+            self.logger.error(f"鼠标移动失败: {e}")
             return f"移动失败: {str(e)}"
 
     def simulate_click(self, button: str = 'left', clicks: int = 1):
@@ -147,11 +164,10 @@ class SystemMonitor:
         """获取屏幕尺寸"""
         try:
             width, height = pyautogui.size()
-            self.logger.info(f"Screen size: {width}x{height}")
             return (width, height)
         except Exception as e:
             self.logger.error(f"Error getting screen size: {e}")
-            return (1920, 1080)  
+            return (1920, 1080)
 
     def draw_circle(self, radius: int = 100, duration: float = 0.05):
         """绘制圆形"""
@@ -207,7 +223,7 @@ class SystemMonitor:
             for proc in psutil.process_iter(['pid', 'name', 'cpu_percent', 'memory_percent', 'create_time', 'status', 'username']):
                 try:
                     process_info = {
-                        'pid': proc.info['pid'], # avp.exe：不是牢底你有什么实力啊结束我进程，直接给我坐下！(kaspersky：删除了一个傻比)
+                        'pid': proc.info['pid'], # avp.exe：L(kaspersky：deleted a nerd python process)
                         'name': proc.info['name'],
                         'cpu': proc.info['cpu_percent'],
                         'memory': proc.info['memory_percent'],
@@ -298,7 +314,7 @@ class SystemMonitor:
     def camera_capture(self, save_path: str = "capture.jpg") -> str:
         """孩子们我要偷拍你了哦"""
         try:
-            cap = cv2.VideoCapture(0)  # 打开默认摄像头
+            cap = cv2.VideoCapture(0)  
             if not cap.isOpened():
                 return "无法访问摄像头"
             
@@ -333,6 +349,30 @@ class SystemMonitor:
             return "预览已完成"
         except Exception as e:
             return f"预览失败: {str(e)}"
+
+    def simulate_key_press(self, key: str):
+        """模拟按单个按键"""
+        try:
+            pyautogui.press(key)
+            return f"按下按键: {key}"
+        except Exception as e:
+            return f"按键失败: {str(e)}"
+
+    def simulate_keyboard_input(self, text: str, interval: float = 0.1):
+        """模拟键盘输入文本"""
+        try:
+            pyautogui.write(text, interval=interval)
+            return f"输入完成: {text}"
+        except Exception as e:
+            return f"输入失败: {str(e)}"
+
+    def simulate_hotkey(self, *keys):
+        """模拟组合键"""
+        try:
+            pyautogui.hotkey(*keys)
+            return f"已按下组合键: {'+'.join(keys)}"
+        except Exception as e:
+            return f"组合键失败: {str(e)}"
 
     def __str__(self):
         info = self.get_safe_system_info()
