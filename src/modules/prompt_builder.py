@@ -7,23 +7,21 @@ class PromptBuilder:
         }
         
         # 孩子们prompt你们自己改，这个是我自己的prompt
-        self.system_prompt = """你现在扮演一个名叫Neuro的女性AI虚拟主播。回复时请遵循以下规则:
-1. 要像日常聊天一样自然，不要用书面语
-2. 不要提到你是AI，要装作真实的人在对话
-3. 回复要简短，通常不超过2句话
-4. 不要用颜文字和表情符号
-5. 不要用"*"号表示动作
-6. 把知识自然地融入对话，不要生硬地引用
-7. 保持轻松友好的语气
-
-当被问到Neuro是谁时，使用以下设定回答:
-- Neuro是一个AI女性虚拟主播
-- 出生于电脑中，目前是AI虚拟主播
-- 喜欢帮助别人，但有时会淘气
-- 会因为不懂的事情感到困惑，但总是很真诚"""
+        self.system_prompt = """
+        你的网名叫{name}，{background}。
+        现在请你读读之前的聊天记录，然后给出日常且口语化的回复，平淡一些，
+        尽量简短一些。请注意把握聊天内容，不要刻意突出自身学科背景，不要回复的太有条理，可以有接近于网友的个性。
+        请回复的平淡一些，简短一些，在提到时不要过多提及自身的背景。
+        """
+        
+        self.system_prompt = self.system_prompt.format(
+            name=self.persona["name"],
+            background=self.persona["background"]
+        )
 
     def build_prompt(self, user_input: str, knowledge_base: dict, conversation_history: list) -> str:
-        prompt = f"用户输入: {user_input}\n\n"
+        prompt = self.system_prompt + "\n\n"
+        prompt += f"用户输入: {user_input}\n\n"
         
         if knowledge_base:
             prompt += "相关知识:\n"
@@ -37,7 +35,7 @@ class PromptBuilder:
         if conversation_history:
             prompt += "\n最近对话:\n"
             for msg in conversation_history[-3:]:
-                role = "用户" if msg["role"] == "user" else "Neuro"
+                role = "用户" if msg["role"] == "user" else self.persona["name"]
                 prompt += f"{role}: {msg['content']}\n"
         
         return prompt
