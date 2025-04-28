@@ -33,14 +33,18 @@ class SystemMonitor:
             screen_width, screen_height = self.get_screen_size()
             mouse_x, mouse_y = self.get_mouse_position()
             info = {
-                'cpu_percent': psutil.cpu_percent(),
-                'memory_percent': psutil.virtual_memory().percent,
-                'python_version': platform.python_version(),
-                'system': platform.system(),
-                'machine': platform.machine(),
-                'screen_size': f"{screen_width}x{screen_height}",
-                'mouse_position': f"({mouse_x}, {mouse_y})",
-                'running_processes': len(psutil.pids())  
+                'CPU占用率': psutil.cpu_percent(),
+                'CPU核心数量': psutil.cpu_count(logical=False),
+                'CPU频率': psutil.cpu_freq(),
+                'CPU运行时间': psutil.boot_time(),
+                '内存占用率': psutil.virtual_memory().percent,
+                'Python版本': platform.python_version(),
+                '系统': platform.system(),
+                '内核': platform.machine(),
+                '磁盘分区': psutil.disk_partitions(),
+                '屏幕分辨率': f"{screen_width}x{screen_height}",
+                '鼠标位置': f"({mouse_x}, {mouse_y})",
+                '进程数量': len(psutil.pids())  
             }
             self.logger.info('Retrieved system information')
             return info
@@ -223,7 +227,7 @@ class SystemMonitor:
             for proc in psutil.process_iter(['pid', 'name', 'cpu_percent', 'memory_percent', 'create_time', 'status', 'username']):
                 try:
                     process_info = {
-                        'pid': proc.info['pid'], # avp.exe：L(kaspersky：deleted a nerd python process)
+                        'pid': proc.info['pid'], # avp.exe：L(kaspersky：deleted a nerdyass python process)
                         'name': proc.info['name'],
                         'cpu': proc.info['cpu_percent'],
                         'memory': proc.info['memory_percent'],
