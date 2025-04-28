@@ -13,13 +13,22 @@ from src.modules.filter import ContentFilter
 from src.modules.knowledge import KnowledgeSystem
 from src.modules.pc_permissions import SystemMonitor
 from src.modules.prompt_builder import PromptBuilder
-from src.modules.relationship import RelationshipSystem  # 新增import
+from src.modules.relationship import RelationshipSystem
 import math
 import random
 import concurrent.futures
 from concurrent.futures import TimeoutError
 from src.modules.api_manager import APIManager
 
+"""
+    TODO:
+    1.修复任务管理器调用权限问题
+    2.添加视觉模型
+    3.修复资源管理器问题
+    4.修复偶现bug
+    5.完善记忆系统
+    6.完善知识库系统
+"""
 
 class ChatBot:
     def __init__(self, config_path: str = "config.json", knowledge_dir: str = "knowledge_base"):
@@ -97,6 +106,7 @@ class ChatBot:
         else:
             print(Fore.RED + "当前后端配置不完整" + Style.RESET_ALL)
 
+    # 默认参数生成器
     def _load_config(self, config_path: str) -> Dict:
         default_config = {
             "default_backend": "deepseek",
@@ -125,6 +135,7 @@ class ChatBot:
             try:
                 with open(config_path, "r", encoding="utf-8") as f:
                     return self._deep_merge(default_config, json.load(f))
+            # 666参数拉太大了
             except Exception as e:
                 print(f"加载配置失败: {e}, 使用默认配置")
         else:
@@ -144,7 +155,8 @@ class ChatBot:
 
     def _split_text(self, text: str, chunk_size: int = 512) -> List[str]:
         return [text[i:i+chunk_size] for i in range(0, len(text), chunk_size)]
-
+    
+    # 没写完的知识库系统，好像还写炸了
     def load_knowledge_from_files(self):
         pass
 
@@ -153,6 +165,7 @@ class ChatBot:
         self.knowledge_base = self.knowledge_system.get_all_knowledge()
         print("知识库已重置")
 
+    # 参数保存
     def save_config(self, config_path: str = "config.json"):
         self.config.update({
             "default_backend": self.backend,
@@ -192,6 +205,7 @@ class ChatBot:
     def get_knowledge(self, domain: str = None) -> Dict[str, List[str]]:
         return self.knowledge_system.get_knowledge(domain)
 
+    # 我其实更应该给这段prompt塞进prompt_builder或者是pc_permissions里面
     def _build_prompt(self, user_input: str) -> str:
         system_control_context = """你需要将用户的自然语言指令转换为具体的系统操作。不需要做出额外的对话回应。
 
