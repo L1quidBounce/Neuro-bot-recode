@@ -28,6 +28,7 @@ from src.modules.api_manager import APIManager
     4.修复偶现bug
     5.完善记忆系统
     6.完善知识库系统
+    7.临时上下文记忆
 """
 
 class ChatBot:
@@ -77,7 +78,7 @@ class ChatBot:
         
         self.knowledge_dir = knowledge_dir
         self.api_config = self.config.get("api_config", {})
-        
+
         if os.path.exists(knowledge_dir):
             self.load_knowledge_from_files()
         
@@ -288,7 +289,8 @@ self.system_monitor.simulate_click('right')
 
         except Exception:
             return "命令执行失败"
-
+        
+        """
         self.conversation_history.append({"role": "user", "content": user_input})
         self.conversation_history.append({"role": "assistant", "content": response})
         
@@ -299,6 +301,7 @@ self.system_monitor.simulate_click('right')
                 self.relationship_system.update_relationship("default_user", -3)
         
         return response
+        """
 
     def clear_history(self):
         self.conversation_history = []
