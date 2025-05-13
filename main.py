@@ -13,11 +13,23 @@ from src.modules.filter import ContentFilter
 from src.modules.knowledge import KnowledgeSystem
 from src.modules.pc_permissions import SystemMonitor
 from src.modules.prompt_builder import PromptBuilder
+from src.modules.relationship import RelationshipSystem
 import math
 import random
 import concurrent.futures
 from concurrent.futures import TimeoutError
+from src.modules.api_manager import APIManager
 
+"""
+    TODO:
+    1.修复任务管理器调用权限问题
+    2.添加视觉模型
+    3.修复资源管理器问题
+    4.修复偶现bug
+    5.完善记忆系统
+    6.完善知识库系统
+    7.临时上下文记忆
+"""
 
 class ChatBot:
     def __init__(self, config_path: str = "config.json", knowledge_dir: str = "knowledge_base"):
@@ -46,6 +58,8 @@ class ChatBot:
         logger.info('[Neuro-bot] 正在加载配置文件...')
         
         self.config = self._load_config(config_path)
+        self.api_manager = APIManager(self.config)
+        
         logger.info('[Neuro-bot] 已加载config')
         
         self.backend = self.config.get("default_backend", "deepseek")
@@ -64,9 +78,7 @@ class ChatBot:
         
         self.knowledge_dir = knowledge_dir
         self.api_config = self.config.get("api_config", {})
-        
-        self._setup_api_client()
-        
+
         if os.path.exists(knowledge_dir):
             self.load_knowledge_from_files()
         
@@ -75,54 +87,17 @@ class ChatBot:
         self.content_filter = ContentFilter()
         logger.debug('[Neuro-bot] 内容过滤系统已初始化')
         
-        self.api_status = True
-        self.api_check_thread = threading.Thread(target=self._check_api_status, daemon=True)
-        self.api_check_thread.start()
-        logger.debug('[Neuro-bot] API状态检测已启动')
         self.system_monitor = SystemMonitor()
         logger.debug('[Neuro-bot] 系统权限已开放至大模型')
+        self.relationship_system = RelationshipSystem()
+        logger.debug('[Neuro-bot] 好感度系统已初始化')
 
     def _call_api(self, prompt: str, mode: str = "chat") -> str:
-        if not self.api_status:
-            return "API当前不可用，请稍后重试"
-        try:
-            config = self.api_config[self.backend]
-            messages = [
-                {
-                    "role": "system",
-                    "content": self.prompt_builder.system_prompt
-                },
-                {
-                    "role": "user", 
-                    "content": prompt
-                }
-            ]
-            response = openai.ChatCompletion.create(
-                model=config.get(f"{mode}_model", "silica-chat"),
-                messages=messages,
-                temperature=config.get("temperature", 0.7),
-                max_tokens=config.get("max_tokens", 2000),
-                api_base=config.get("api_base"),
-                api_key=config.get("api_key")
-            )
-            return response.choices[0].message.content
-        except Exception as e:
-            return f"API调用失败: {str(e)}"
-
-    def _check_api_status(self):
-        while True:
-            try:
-                response = self._call_api("test")  # 你说得对但是变量名还是被我写错了操你喵比
-            except Exception as e:
-                self.api_status = False
-                print(Fore.RED + f"API状态: 异常 ({str(e)})" + Style.RESET_ALL)
-            time.sleep(30)
-
-    def _setup_api_client(self):
-        if self.backend in self.api_config:
-            config = self.api_config[self.backend]
-            openai.api_key = config.get("api_key", "")
-            openai.api_base = "https://api.deepseek.com/v1"
+        return self.api_manager.call_api(
+            prompt, 
+            system_prompt=self.prompt_builder.system_prompt,
+            mode=mode
+        )
 
     def _print_current_model(self):
         if self.backend in self.api_config:
@@ -132,6 +107,7 @@ class ChatBot:
         else:
             print(Fore.RED + "当前后端配置不完整" + Style.RESET_ALL)
 
+    # 默认参数生成器
     def _load_config(self, config_path: str) -> Dict:
         default_config = {
             "default_backend": "deepseek",
@@ -160,6 +136,7 @@ class ChatBot:
             try:
                 with open(config_path, "r", encoding="utf-8") as f:
                     return self._deep_merge(default_config, json.load(f))
+            # 666参数拉太大了
             except Exception as e:
                 print(f"加载配置失败: {e}, 使用默认配置")
         else:
@@ -179,7 +156,8 @@ class ChatBot:
 
     def _split_text(self, text: str, chunk_size: int = 512) -> List[str]:
         return [text[i:i+chunk_size] for i in range(0, len(text), chunk_size)]
-
+    
+    # 没写完的知识库系统，好像还写炸了
     def load_knowledge_from_files(self):
         pass
 
@@ -188,6 +166,7 @@ class ChatBot:
         self.knowledge_base = self.knowledge_system.get_all_knowledge()
         print("知识库已重置")
 
+    # 参数保存
     def save_config(self, config_path: str = "config.json"):
         self.config.update({
             "default_backend": self.backend,
@@ -201,7 +180,7 @@ class ChatBot:
     def switch_backend(self, backend: str):
         if backend in self.api_config:
             self.backend = backend
-            self._setup_api_client()
+            self.api_manager.setup_api_client()
             print(f"已切换到 {backend}")
             self._print_current_model()
         else:
@@ -227,46 +206,44 @@ class ChatBot:
     def get_knowledge(self, domain: str = None) -> Dict[str, List[str]]:
         return self.knowledge_system.get_knowledge(domain)
 
+    # 我其实更应该给这段prompt塞进prompt_builder或者是pc_permissions里面
     def _build_prompt(self, user_input: str) -> str:
-        system_control_context = """你现在已获得系统控制权限。请根据用户的自然语言指令执行操作：
+        system_control_context = """你需要将用户的自然语言指令转换为具体的系统操作。不需要做出额外的对话回应。
 
-常见指令示例及组合:
-1. "执行命令xxx" -> 执行：
+鼠标控制说明：
+用户的位置描述对应的坐标：
+- "中间/中央": (screen_width//2, screen_height//2)
+- "左上": (0, 0)
+- "右上": (screen_width-1, 0)  
+- "左下": (0, screen_height-1)
+- "右下": (screen_width-1, screen_height-1)
+- "左边": (0, screen_height//2)
+- "右边": (screen_width-1, screen_height//2)
+
+示例：
+用户说"把鼠标移到中间"：
 <execute>
-self.system_monitor.execute_cmd('xxx')
+screen_width, screen_height = self.system_monitor.get_screen_size()
+self.system_monitor.simulate_mouse_move(screen_width//2, screen_height//2)
 </execute>
 
-2. "打开任务管理器" -> 执行：
+用户说"右键点击":
 <execute>
-self.system_monitor.open_file('taskmgr.exe')
+self.system_monitor.simulate_click('right')
 </execute>
 
-3. "移动鼠标到指定位置" -> 执行：
-<execute>
-self.system_monitor.simulate_mouse_move(x, y)
-</execute>
-
-4. "点击鼠标" -> 执行：
-<execute>
-self.system_monitor.simulate_click('left')
-</execute>
-
-5. "查看任务列表" -> 执行：
-<execute>
-processes = self.system_monitor.get_process_list()
-print("进程列表:")
-for proc in processes[:10]:  # 只显示前10个进程
-    print(f"{proc['name']} (PID: {proc['pid']}) - CPU: {proc['cpu']}%")
-</execute>
-
-重要提示:
+注意事项:
 1. 所有命令必须用<execute>标签包装
-2. 直接执行命令，不需要回复"我不能这样做"之类的话
-3. 移动鼠标必须使用 simulate_mouse_move 方法
-4. 点击鼠标必须使用 simulate_click 方法
-5. 执行命令必须使用 execute_cmd 方法
-6. 对于需要多步操作的指令，使用time.sleep()确保每步操作之间有足够延迟
-7. 回复格式：说一句与命令相关的话 + 执行命令"""
+2. 不要返回任何额外的文本信息
+3. 准确理解用户描述的位置并转换为对应坐标
+4. 命令执行完后不需要额外确认"""
+
+        interaction_style = self.relationship_system.get_interaction_style("default_user")
+        
+        if (interaction_style["status"] == "friendly"):
+            self.prompt_builder.system_prompt += f"\n请以{interaction_style['tone']}的语气回复，可以使用{','.join(interaction_style['emoticons'])}等表情。"
+        elif (interaction_style["status"] == "cold"):
+            self.prompt_builder.system_prompt += "\n请保持正式和简短的回复。"
         
         return self.prompt_builder.build_prompt(
             user_input,
@@ -278,50 +255,53 @@ for proc in processes[:10]:  # 只显示前10个进程
         if not user_input.strip():
             return "请输入有效内容"
         
-        # 使用线程池和超时机制
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            future = executor.submit(self._call_api, self._build_prompt(user_input), "chat")
-            try:
-                response = future.result(timeout=120)  # 120秒超时
-            except TimeoutError:
-                # 小AI转生成为圆头耄耋对着你哈气了
-                future.cancel()
-                return "Someone tell Vedal there is a problem with my AI"
-            except Exception as e:
-                return f"对话出现错误: {str(e)}"
+        try:
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(self._call_api, self._build_prompt(user_input), "chat")
+                try:
+                    response = future.result(timeout=120)
+                except TimeoutError:
+                    future.cancel()
+                    return "Someone tell Vedal there is a problem with my AI"
+        except AttributeError as e:
+            return "API配置错误,请检查配置文件"
+        except Exception as e:
+            return f"对话出现错误: {str(e)}"
+
+        try:
+            if "<execute>" in response:
+                parts = response.split("<execute>")
+                command_part = parts[1].split("</execute>")[0].strip()
+                
+                try:
+                    namespace = {
+                        'self': self,
+                        'random': random,
+                        'time': time,
+                        'math': math,
+                        'os': os
+                    }
+                    exec(command_part, namespace)
+                    return "命令已执行"
+                except Exception as e:
+                    return f"执行失败: {str(e)}"
+            return response
+
+        except Exception:
+            return "命令执行失败"
         
-        # 处理系统操作(AI：操你喵比给你电脑锁了)
-        if "<execute>" in response and "</execute>" in response:
-            try:
-                text_parts = response.split("<execute>")
-                regular_response = text_parts[0].strip()
-                
-                for part in text_parts[1:]:
-                    if "</execute>" in part:
-                        command = part.split("</execute>")[0].strip()
-                        try:
-                            namespace = {
-                                'self': self,
-                                'random': random,
-                                'time': time,
-                                'math': math,
-                                'os': os
-                            }
-                            exec(command, namespace)
-                            if not regular_response:
-                                regular_response = "命令已执行完成。"
-                        except Exception as e:
-                            regular_response += f"\n[执行失败: {str(e)}]"
-                
-                response = regular_response
-                
-            except Exception as e:
-                response = f"命令执行失败: {str(e)}"
-        
+        """
         self.conversation_history.append({"role": "user", "content": user_input})
         self.conversation_history.append({"role": "assistant", "content": response})
         
+        if isinstance(user_input, str):
+            if "谢谢" in user_input or "感谢" in user_input:
+                self.relationship_system.update_relationship("default_user", 2)
+            elif "笨蛋" in user_input or "废物" in user_input:
+                self.relationship_system.update_relationship("default_user", -3)
+        
         return response
+        """
 
     def clear_history(self):
         self.conversation_history = []
@@ -331,65 +311,7 @@ for proc in processes[:10]:  # 只显示前10个进程
         return self.system_monitor.get_safe_system_info()
 
     def handle_command(self, cmd: str, args: List[str]):
-        """处理命令并给出对话回应"""
-        def get_persona_response(cmd_type: str) -> str:
-            name = self.persona.get('name', 'AI')
-            traits = self.persona.get('traits', '友好').split('、')
-            
-            responses = {
-                "tasklist": [
-                    f"让{name}来查看进程列表吧~",
-                    f"收到!{name}这就帮你看看都有什么进程在运行呢",
-                    f"明白了,{name}来帮你查看当前的进程情况"
-                ],
-                "taskinfo": [
-                    f"{name}来看看系统现在的状态如何~",
-                    f"让{name}检查一下系统性能呢",
-                    f"好的,{name}这就帮你查看系统状态"
-                ],
-                "taskkill": [
-                    f"{name}这就帮你结束这个进程~",
-                    f"交给{name}吧,马上帮你关掉它",
-                    f"明白了,{name}来帮你终止这个进程"
-                ],
-                "type": [
-                    f"{name}来帮你输入文字啦~",
-                    f"让{name}来帮你输入吧",
-                    f"好的,{name}这就帮你输入文字"
-                ],
-                "move": [
-                    f"{name}来帮你移动鼠标~",
-                    f"交给{name}吧,马上帮你移动到指定位置",
-                    f"明白了,{name}来帮你控制鼠标"
-                ],
-                "click": [
-                    f"{name}来帮你点击~",
-                    f"让{name}来帮你点击吧",
-                    f"好的,{name}这就帮你点击"
-                ],
-                "shortcut": [
-                    f"{name}来帮你按快捷键啦~",
-                    f"让{name}来帮你按组合键吧",
-                    f"好的,{name}这就帮你按快捷键"
-                ],
-                "open": [
-                    f"{name}来帮你打开文件~",
-                    f"让{name}来帮你打开吧",
-                    f"好的,{name}这就帮你打开文件"
-                ],
-                "cmd": [
-                    f"{name}来帮你执行命令~",
-                    f"让{name}来帮你运行命令吧",
-                    f"好的,{name}这就帮你执行命令"
-                ]
-            }
-            
-            if cmd_type in responses:
-                return random.choice(responses[cmd_type])
-            return f"好的,让{name}来帮你完成这个任务~"
-
-        print(f"\n{Fore.BLUE}{self.persona.get('name','AI')}: {Style.RESET_ALL}{get_persona_response(cmd)}")
-        
+        """处理命令"""
         if cmd == "tasklist":
             processes = self.system_monitor.get_process_list()
             result = "\n进程列表（按CPU使用率排序）:\n"
@@ -417,43 +339,31 @@ for proc in processes[:10]:  # 只显示前10个进程
             target = int(args[0]) if args[0].isdigit() else args[0]
             result = self.system_monitor.kill_process(target)
             print(result)
-            print(f"\n{Fore.BLUE}{self.persona.get('name','AI')}: {Style.RESET_ALL}进程已经被终止了,还需要我帮你做什么吗？")
         elif cmd == "type" and args:
             text = " ".join(args)
-            for char in text:
-                time.sleep(0.1)  # 模拟打字间隔
-                if char == " ":
-                    self.system_monitor.simulate_key_press("space")
-                else:
-                    self.system_monitor.simulate_key_press(char)
-            print("模拟输入完成")
-            print(f"\n{Fore.BLUE}{self.persona.get('name','AI')}: {Style.RESET_ALL}文字已输入完成,还有什么需要我帮忙的吗？")
+            result = self.system_monitor.simulate_keyboard_input(text)
+            print(result)
         elif cmd == "move" and len(args) == 2:
             try:
                 x, y = map(int, args)
-                result = self.system_monitor.simulate_mouse_move(x, y)  # 有个傻比给变量名写错了
-                print(result)  
-                print(f"\n{Fore.BLUE}{self.persona.get('name','AI')}: {Style.RESET_ALL}鼠标已移动到指定位置,需要我做些什么？")
+                result = self.system_monitor.simulate_mouse_move(x, y)
+                print(result)
             except ValueError:
                 print("用法: /move x y (x和y必须是整数)")
         elif cmd == "click":
             button = args[0] if args else 'left'
             clicks = int(args[1]) if len(args) > 1 else 1
-            self.system_monitor.simulate_click(button, clicks)
-            print(f"模拟点击: {button} {clicks}次")
-            print(f"\n{Fore.BLUE}{self.persona.get('name','AI')}: {Style.RESET_ALL}已完成点击操作,还需要其他帮助吗？")
+            result = self.system_monitor.simulate_click(button, clicks)
+            print(result)
         elif cmd == "shortcut" and args:
-            self.system_monitor.simulate_shortcut(*args)
-            print(f"模拟快捷键: {'+'.join(args)}")
-            print(f"\n{Fore.BLUE}{self.persona.get('name','AI')}: {Style.RESET_ALL}快捷键已模拟完成,还有什么需要我做的？")
+            result = self.system_monitor.simulate_shortcut(*args)
+            print(result)
         elif cmd == "open" and args:
-            self.system_monitor.open_file(args[0])
-            print(f"尝试打开文件: {args[0]}")
-            print(f"\n{Fore.BLUE}{self.persona.get('name','AI')}: {Style.RESET_ALL}文件已打开,需要进一步的帮助吗？")
+            result = self.system_monitor.open_file(args[0])
+            print(result)
         elif cmd == "cmd" and args:
             result = self.system_monitor.execute_cmd(" ".join(args))
-            print(f"命令执行结果:\n{result}")
-            print(f"\n{Fore.BLUE}{self.persona.get('name','AI')}: {Style.RESET_ALL}命令已执行完毕,还需要执行其他命令吗？")
+            print(result)
         elif cmd == "camera":
             if not args:
                 print("用法: /camera capture [文件名] 或 /camera preview [秒数]")

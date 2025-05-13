@@ -1,22 +1,28 @@
-from pymongo import MongoClient
+from src.modules.mongodb_manager import MongoDBManager
 from datetime import datetime, timedelta
 import threading
 import time
 from typing import Dict, List, Optional
 import math
 
-# 孩子们这个还没写完，哈基bot的大脑还不完善
 class MemorySystem:
-    def __init__(self, db_name: str = "NeuroBot", host: str = "localhost", port: int = 27017):
-        self.client = MongoClient(host, port)
-        self.db = self.client[db_name]
-        self.memories = self.db.memories
-        self.conversations = self.db.conversations
+    def __init__(self):
+        self.memories = None
+        self.conversations = None
         
-        self.memory_thread = threading.Thread(target=self._manage_memories, daemon=True)
-        self.memory_thread.start()
+        db = MongoDBManager.get_db()
+        if db is not None:
+            self.memories = db[MongoDBManager.MONGO_COLLECTION_MEMORIES]
+            self.conversations = db[MongoDBManager.MONGO_COLLECTION_CONVERSATIONS]
+        
+        if self.memories is not None and self.conversations is not None:
+            self.memory_thread = threading.Thread(target=self._manage_memories, daemon=True)
+            self.memory_thread.start()
 
     def store_memory(self, content: str, tags: List[str] = None, metadata: Dict = None) -> str:
+        if self.memories is None:
+            return None
+            
         memory = {
             "content": content,
             "tags": tags or [],
@@ -59,7 +65,7 @@ class MemorySystem:
 
     def _manage_memories(self):
         """定期管理哈基bot的大脑"""
-        while True:
+        while True and self.memories is not None:
             try:
                 old_date = datetime.utcnow() - timedelta(days=7)
                 self.memories.update_many(
